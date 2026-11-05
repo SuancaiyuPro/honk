@@ -323,7 +323,7 @@ pub(crate) fn setup_daens_namespace(tproxy_mark: u32, tproxy_port: u16) -> anyho
 /// Path of the daens network-namespace bind-mount, kept for external
 /// tooling compatibility (`ip netns exec`, debug shells). The engine
 /// itself never depends on it — the namespace is FD-owned (below).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) const DAENS_NS_PATH: &str = "/var/run/netns/daens";
 
 /// Runtime truth for "daens is set up", set by [`setup_daens_namespace`]
@@ -331,7 +331,7 @@ pub(crate) const DAENS_NS_PATH: &str = "/var/run/netns/daens";
 /// `DAENS_NS_PATH` existing — a leftover or failed compat mount says
 /// nothing about the datapath (a first clean deploy once bound every
 /// TPROXY listener into the host namespace because of that confusion).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) static DAENS_READY: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -476,7 +476,13 @@ pub(crate) fn daens_netns_id() -> anyhow::Result<i32> {
 #[cfg(feature = "ebpf")]
 pub(crate) fn daens_netns_cookie() -> anyhow::Result<u64> {
     use anyhow::Context as _;
+    #[cfg(not(target_os = "android"))]
+    use libc::SO_NETNS_COOKIE;
     use std::os::fd::AsRawFd as _;
+
+    // Android libc omits this constant from Linux's asm-generic/socket.h.
+    #[cfg(target_os = "android")]
+    const SO_NETNS_COOKIE: libc::c_int = 71;
 
     with_daens_netns("read daens netns cookie", || {
         let socket = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::DGRAM, None)
@@ -488,7 +494,7 @@ pub(crate) fn daens_netns_cookie() -> anyhow::Result<u64> {
             libc::getsockopt(
                 socket.as_raw_fd(),
                 libc::SOL_SOCKET,
-                libc::SO_NETNS_COOKIE,
+                SO_NETNS_COOKIE,
                 (&raw mut cookie).cast(),
                 &mut length,
             )
@@ -520,7 +526,7 @@ pub(crate) fn daens_netns_cookie() -> anyhow::Result<u64> {
 /// process-wide mutex serializes the switches; it is not strictly required
 /// for correctness (each switch is per-thread) but keeps enter/leave pairs
 /// easy to reason about and the logs ordered.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(crate) fn with_daens_netns<R>(
     op: &str,
     f: impl FnOnce() -> anyhow::Result<R>,

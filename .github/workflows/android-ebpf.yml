@@ -77,6 +77,12 @@ jobs:
           grep -q '\.BTF ' port-reports/ebpf-sections.txt
           printf '%s' "$EBPF_TOOLCHAIN" > "$object.toolchain"
           sha256sum "$object" > port-reports/ebpf-object-sha256.txt
+      - name: Check native Linux real eBPF compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all -- --check
+          cargo check --locked -p honk-core --no-default-features --features clash-api,rprx,ebpf 2>&1 | tee port-reports/linux-ebpf-check.log
       - name: Configure Android NDK toolchain
         shell: bash
         run: |

@@ -1,6 +1,6 @@
 ### CI / releases
 
-The Android fork additionally has `.github/workflows/android-ebpf.yml` on `android-ebpf`: a compile/link probe for ARM64/API 35 with `clash-api,rprx,ebpf`. It builds and BTF-checks the standalone kernel object with the pinned nightly/linker before exporting Android NDK flags. Failure reports are retained; binaries require a successful check and link. It runs no kernel programs and establishes no Android runtime support; bilingual device prerequisites and limitations are in `doc/{en,zh}/operations/android.md`. The original mock-only `android-arm64.yml` remains independent.
+The Android fork additionally has `.github/workflows/android-ebpf.yml` on `android-ebpf`: a compile/link probe for ARM64/API 35 with `clash-api,rprx,ebpf`. It builds and BTF-checks the standalone kernel object with the pinned nightly/linker, then checks native Linux compilation/formatting before exporting Android NDK flags. Failure reports are retained; binaries require a successful check and link. It runs no kernel programs and establishes no Android runtime support; bilingual device prerequisites and limitations are in `doc/{en,zh}/operations/android.md`. The original mock-only `android-arm64.yml` remains independent.
 
 Read with: `AGENTS.md` (Current validation guidance, the workspace gate); `deployment.md` for what the tarballs are for; skill `honk-release` for the tag-to-release sequence.
 

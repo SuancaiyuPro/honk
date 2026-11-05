@@ -17,3 +17,5 @@
 该设备为 `CONFIG_NETFILTER_NETLINK_QUEUE=y`，但未启用 `CONFIG_NF_TABLES`。当前 NFQUEUE 服务需要安装 nftables 规则，因此完整路径不能原样使用。初期 Android 实验必须显式设置 `global.nfqueue_enable: false`。这不等于关闭全部 eBPF，也不证明 UDP 已可用：依赖 NFQUEUE 的不确定 LAN UDP 暂存和分片 LAN DNS 投递仍不可用。手机本机发起的 WAN 接管采用另一条 TC 路径，仍需验证。
 
 移动数据网卡报告 RAWIP 帧格式。上游分类器已有该类型的 `_l3` 程序，但文档明确未验证真实基带网卡流量。设备测试必须考虑现有隧道和 Android 策略路由，不能清空 Android 规则或删除其他组件的 BPF 固定对象。
+
+首次真实后端探测成功构建了带 BTF 的内核对象并准备了嵌入文件，Aya 和 NFQUEUE 依赖也通过 Android 检查，但核心因十二处声明缺失而编译失败。现将已有命名空间定义也用于 Android；Android 缺少的 `SO_NETNS_COOKIE` 声明采用 arm64 Linux UAPI 的值 71，Linux 继续使用 libc 声明。工作流先检查原生 Linux 的 `ebpf` 编译和格式，再配置 Android。透明 socket 和出站标记辅助函数仍有 Linux 专用条件，因此此阶段不能当作可用的 Android 数据路径，也不能自动装入 KernelSU 模块。
