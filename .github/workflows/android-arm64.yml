@@ -68,7 +68,11 @@ jobs:
           cp "target/$TARGET/release/honk-core" android-dist/honk-core
           file android-dist/honk-core | tee port-reports/android-elf.txt
           llvm-readelf -l -d android-dist/honk-core | tee -a port-reports/android-elf.txt
-          sha256sum android-dist/honk-core > android-dist/SHA256SUMS
+          (
+            cd android-dist
+            sha256sum honk-core > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
       - name: Upload Android executable
         uses: actions/upload-artifact@v4
         with:
