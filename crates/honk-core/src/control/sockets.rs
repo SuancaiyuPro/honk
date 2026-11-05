@@ -23,7 +23,7 @@ pub(super) fn set_so_recvpriority(socket: &impl std::os::fd::AsRawFd) -> io::Res
         Ok(())
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn set_ip_transparent(socket: &Socket, is_v6: bool) -> io::Result<()> {
     if is_v6 {
         socket.set_ip_transparent_v6(true)
@@ -41,7 +41,7 @@ pub(super) fn bind_tproxy_tcp(
     addr: SocketAddr,
     _mark: u32,
 ) -> anyhow::Result<std::net::TcpListener> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if daens_netns_exists() {
         return crate::daens::with_daens_netns("bind TPROXY TCP listener", || {
             build_tproxy_tcp(addr, true)
@@ -54,12 +54,12 @@ pub(super) fn bind_tproxy_tcp(
 /// policy routing live). Only real eBPF mode creates it (mock mode and
 /// tests stay entirely in the host netns), so this flag is the switch
 /// between "bind inside daens" and "bind here".
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn daens_netns_exists() -> bool {
     crate::daens::DAENS_READY.load(std::sync::atomic::Ordering::Acquire)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub(super) fn daens_netns_exists() -> bool {
     false
 }
@@ -80,13 +80,13 @@ fn build_tproxy_tcp(addr: SocketAddr, transparent: bool) -> anyhow::Result<std::
         socket.set_only_v6(true)?;
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if transparent {
         set_ip_transparent(&socket, addr.is_ipv6())?;
         // Accepted sockets inherit the listener mark; the accept loop clears it.
         set_so_mark(&socket, honk_outbound::util::bypass_mark())?;
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let _ = transparent;
 
     socket.bind(&addr.into())?;
@@ -116,7 +116,7 @@ fn set_client_keepalive(socket: &Socket) -> io::Result<()> {
 
 /// Clear the inherited bypass mark on an accepted transparent socket.
 pub(super) fn set_so_mark_zero(fd: &impl std::os::fd::AsFd) -> io::Result<()> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if !daens_netns_exists() {
         return Ok(());
     }
@@ -124,13 +124,12 @@ pub(super) fn set_so_mark_zero(fd: &impl std::os::fd::AsFd) -> io::Result<()> {
 }
 
 /// Set SO_MARK, including the configured bypass identity on TPROXY listeners.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn set_so_mark(fd: &impl std::os::fd::AsFd, mark: u32) -> io::Result<()> {
-    nix::sys::socket::setsockopt(fd, nix::sys::socket::sockopt::Mark, &mark)
-        .map_err(io::Error::from)
+    socket2::SockRef::from(fd).set_mark(mark)
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub(super) fn set_so_mark(_fd: &impl std::os::fd::AsFd, _mark: u32) -> io::Result<()> {
     Ok(())
 }
@@ -143,7 +142,7 @@ pub(super) fn bind_tproxy_udp_listeners(
     addr: SocketAddr,
     count: usize,
 ) -> anyhow::Result<Vec<UdpSocket>> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if daens_netns_exists() {
         return crate::daens::with_daens_netns("bind TPROXY UDP listener group", || {
             (0..count)
@@ -160,7 +159,7 @@ pub(super) fn new_udp_listener_socket(domain: Domain, reuse_port: bool) -> io::R
     let socket = Socket::new(domain, Type::DGRAM, None)?;
     socket.set_nonblocking(true)?;
     socket.set_cloexec(true)?;
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     if reuse_port {
         socket.set_reuse_port(true)?;
     }
@@ -170,15 +169,20 @@ pub(super) fn new_udp_listener_socket(domain: Domain, reuse_port: bool) -> io::R
     }
     Ok(socket)
 }
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn set_so_recvmark(socket: &Socket) -> io::Result<()> {
+    #[cfg(target_os = "linux")]
+    use libc::SO_RCVMARK;
+    // Android/arm64 uses the asm-generic Linux socket option numbers.
+    #[cfg(target_os = "android")]
+    const SO_RCVMARK: libc::c_int = 75;
     let enabled: libc::c_int = 1;
     // SAFETY: the option payload points to a live native integer for this call.
     let status = unsafe {
         libc::setsockopt(
             socket.as_raw_fd(),
             libc::SOL_SOCKET,
-            libc::SO_RCVMARK,
+            SO_RCVMARK,
             (&enabled as *const libc::c_int).cast(),
             std::mem::size_of_val(&enabled) as libc::socklen_t,
         )
@@ -209,7 +213,7 @@ fn build_tproxy_udp(
     // at startup).
     let _ = socket.set_recv_buffer_size(8 << 20);
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         if transparent {
             set_ip_transparent(&socket, addr.is_ipv6())?;
@@ -243,7 +247,7 @@ fn build_tproxy_udp(
             .map_err(io::Error::from)?;
         }
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     let _ = transparent;
 
     socket.bind(&addr.into())?;
@@ -264,8 +268,8 @@ pub(super) async fn send_udp_reply_from_orig_dst(
     // source port is the DNS port — the DNS controller always reconstructs
     // the original destination with port 53. Anything else (or a failure to
     // create the cached socket) falls through to the one-shot socket below.
-    #[cfg(target_os = "linux")]
-    if original_dst.port() == 53 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if original_dst.port() == 53 && (cfg!(target_os = "linux") || daens_netns_exists()) {
         match send_dns_reply_cached(data, client_addr, original_dst).await {
             Some(Ok(n)) => {
                 let fallback = &DNS_REPLY_FALLBACK[usize::from(original_dst.is_ipv6())];
@@ -320,7 +324,7 @@ pub(super) async fn send_udp_reply_from_orig_dst(
 /// in, so after creation it may be used from any (host-netns) worker thread.
 /// In mock mode there is no daens and the socket is created in the current
 /// (host) netns.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 pub(super) fn new_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSocket> {
     if daens_netns_exists() {
         return crate::daens::with_daens_netns("create UDP reply socket", || {
@@ -333,7 +337,7 @@ pub(super) fn new_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSo
 
 /// Non-Linux fallback: no daens netns exists; create the socket in the
 /// current namespace.
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub(super) fn new_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSocket> {
     build_udp_reply_socket(original_dst)
 }
@@ -341,7 +345,7 @@ pub(super) fn new_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSo
 /// Flatten a `with_daens_netns` error back into an `io::Error`, preserving
 /// the original `io::Error` (and its kind) when the scoped closure produced
 /// one.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn into_io_error(e: anyhow::Error) -> io::Error {
     e.downcast::<io::Error>()
         .unwrap_or_else(|e| io::Error::other(e.to_string()))
@@ -357,8 +361,10 @@ fn build_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSocket> {
     socket.set_nonblocking(true)?;
     socket.set_reuse_address(true)?;
 
-    #[cfg(target_os = "linux")]
-    set_ip_transparent(&socket, original_dst.is_ipv6())?;
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if cfg!(target_os = "linux") || daens_netns_exists() {
+        set_ip_transparent(&socket, original_dst.is_ipv6())?;
+    }
 
     socket.bind(&original_dst.into())?;
     UdpSocket::from_std(socket.into())
@@ -380,24 +386,24 @@ fn build_udp_reply_socket(original_dst: SocketAddr) -> io::Result<UdpSocket> {
 // no daens and creates it in the host netns).  A socket is pinned to the
 // netns it was created in no matter which worker thread sends through it —
 // creation in daens, use from anywhere.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 static DNS_REPLY_SOCK_V4: Mutex<Option<Arc<UdpSocket>>> = Mutex::new(None);
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 static DNS_REPLY_SOCK_V6: Mutex<Option<Arc<UdpSocket>>> = Mutex::new(None);
 
 /// Per-family flag set while cached DNS replies fall back to one-shot
 /// sockets, so a persistent failure warns once per episode, not per reply.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 static DNS_REPLY_FALLBACK: [std::sync::atomic::AtomicBool; 2] = [
     std::sync::atomic::AtomicBool::new(false),
     std::sync::atomic::AtomicBool::new(false),
 ];
 
 /// Source port every DNS reply is sent from (the port clients send queries to).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const DNS_REPLY_SOURCE_PORT: u16 = 53;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn dns_reply_socket_cache(is_v6: bool) -> &'static Mutex<Option<Arc<UdpSocket>>> {
     if is_v6 {
         &DNS_REPLY_SOCK_V6
@@ -414,7 +420,7 @@ fn dns_reply_socket_cache(is_v6: bool) -> &'static Mutex<Option<Arc<UdpSocket>>>
 /// `crate::daens::with_daens_netns` switch when daens exists (Go anyfrom semantics)
 /// and is pinned to daens afterwards; sends may run on any worker thread.
 /// Mock mode has no daens and creates the socket in the current netns.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn new_dns_reply_socket(is_v6: bool) -> io::Result<UdpSocket> {
     if daens_netns_exists() {
         return crate::daens::with_daens_netns("create cached DNS reply socket", || {
@@ -425,7 +431,7 @@ fn new_dns_reply_socket(is_v6: bool) -> io::Result<UdpSocket> {
     build_dns_reply_socket(is_v6)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn build_dns_reply_socket(is_v6: bool) -> io::Result<UdpSocket> {
     let domain = if is_v6 { Domain::IPV6 } else { Domain::IPV4 };
     let socket = Socket::new(domain, Type::DGRAM, None)?;
@@ -454,7 +460,7 @@ fn build_dns_reply_socket(is_v6: bool) -> io::Result<UdpSocket> {
 
 /// Get the cached DNS reply socket for the family, creating it lazily on
 /// first use.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn get_dns_reply_socket(is_v6: bool) -> io::Result<Arc<UdpSocket>> {
     let cache = dns_reply_socket_cache(is_v6);
     if let Some(sock) = cache.lock().unwrap().as_ref() {
@@ -475,7 +481,7 @@ fn get_dns_reply_socket(is_v6: bool) -> io::Result<Arc<UdpSocket>> {
 /// already replaced it, in which case the fresh one is returned. The old
 /// socket may be stale (dead interface state), so the caller retries once
 /// with the returned socket before reporting an error.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn replace_dns_reply_socket(is_v6: bool, old: &Arc<UdpSocket>) -> io::Result<Arc<UdpSocket>> {
     let cache = dns_reply_socket_cache(is_v6);
     let mut guard = cache.lock().unwrap();
@@ -493,7 +499,7 @@ fn replace_dns_reply_socket(is_v6: bool, old: &Arc<UdpSocket>) -> io::Result<Arc
 /// client refused, the datagram is too large) rather than the socket. A
 /// destination error is reported as is: rebuilding the socket would not
 /// change it, and the family's other clients keep the socket they share.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn send_error_is_destination_specific(error: &io::Error) -> bool {
     matches!(
         error.raw_os_error(),
@@ -516,7 +522,7 @@ fn send_error_is_destination_specific(error: &io::Error) -> bool {
 /// socket-level send failure the cached socket is rebuilt once and the send
 /// retried once before the error is reported; a destination-specific
 /// failure is reported without touching the shared socket.
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 async fn send_dns_reply_cached(
     data: &[u8],
     client_addr: SocketAddr,
@@ -1233,7 +1239,7 @@ fn sockaddr_to_std(addr: &libc::sockaddr_storage, len: libc::socklen_t) -> io::R
 }
 
 pub(super) fn get_original_dst(stream: &TcpStream) -> anyhow::Result<SocketAddr> {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         if stream.local_addr()?.is_ipv4() {
             let addr = nix::sys::socket::getsockopt(stream, nix::sys::socket::sockopt::OriginalDst)
@@ -1253,7 +1259,7 @@ pub(super) fn get_original_dst(stream: &TcpStream) -> anyhow::Result<SocketAddr>
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     {
         let _ = stream;
         anyhow::bail!("TPROXY destination retrieval is only supported on Linux")

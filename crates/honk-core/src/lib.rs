@@ -773,6 +773,11 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
         "--store db needs the native-api feature"
     );
     let mock_mode = cli.mock_ebpf || cfg!(not(feature = "ebpf"));
+    #[cfg(all(target_os = "android", feature = "ebpf"))]
+    anyhow::ensure!(
+        mock_mode,
+        "Android WAN forwarding is experimental; use --mock-ebpf for the manager"
+    );
     // Everything else in `run` drops before it.
     let _instance_lock = instance_lock(mock_mode)?;
     #[cfg(feature = "native-api")]
