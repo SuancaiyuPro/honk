@@ -1,4 +1,4 @@
-name: Android ARM64 port probe
+name: Android ARM64 build
 
 on:
   workflow_dispatch:
@@ -10,12 +10,13 @@ on:
       - 'Cargo.lock'
       - 'crates/**'
       - 'rust-toolchain.toml'
+      - 'ci/android-toolchain.cmake'
 
 permissions:
   contents: read
 
 jobs:
-  android-probe:
+  android-build:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
@@ -38,14 +39,37 @@ jobs:
           echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
           echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
           echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android35 --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot" >> "$GITHUB_ENV"
+          echo "CMAKE_TOOLCHAIN_FILE_aarch64_linux_android=$GITHUB_WORKSPACE/ci/android-toolchain.cmake" >> "$GITHUB_ENV"
+          echo "BORING_BSSL_RUST_CPPLIB=c++_static" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-l static=c++abi -C link-arg=-Wl,-z,max-page-size=16384" >> "$GITHUB_ENV"
       - name: Install Rust target
         run: rustup target add "$TARGET"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: android-arm64-api35
+          cache-on-failure: true
       - name: Probe Android compatibility (capture errors)
         shell: bash
         run: |
           set -o pipefail
           mkdir -p port-reports
           cargo check --locked --target "$TARGET" -p honk-core --no-default-features --features clash-api 2>&1 | tee port-reports/android-check.log
+      - name: Link Android executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "$TARGET" -p honk-core --no-default-features --features clash-api 2>&1 | tee port-reports/android-build.log
+          mkdir -p android-dist
+          cp "target/$TARGET/release/honk-core" android-dist/honk-core
+          file android-dist/honk-core | tee port-reports/android-elf.txt
+          llvm-readelf -l -d android-dist/honk-core | tee -a port-reports/android-elf.txt
+          sha256sum android-dist/honk-core > android-dist/SHA256SUMS
+      - name: Upload Android executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: honk-android-arm64-api35
+          path: android-dist/
+          if-no-files-found: error
       - name: Upload compatibility log
         if: always()
         uses: actions/upload-artifact@v4
@@ -53,3 +77,15 @@ jobs:
           name: android-arm64-port-report
           path: port-reports/
           if-no-files-found: warn
+
+  linux-check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y cmake ninja-build pkg-config libclang-dev clang
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: android-port-linux
+      - run: cargo check --locked -p honk-core --no-default-features --features clash-api
+
