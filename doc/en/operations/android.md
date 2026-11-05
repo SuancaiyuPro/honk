@@ -18,4 +18,22 @@ That device has `CONFIG_NETFILTER_NETLINK_QUEUE=y` but `CONFIG_NF_TABLES` disabl
 
 Mobile-data interfaces report RAWIP framing. The upstream classifier has an `_l3` family for this type, but its documentation explicitly excludes real modem traffic from verified coverage. Existing tunnels and Android policy rules must be accounted for during device testing; do not flush Android rules or remove other consumers' BPF pins.
 
-The first real-backend probe built and prepared the BTF-bearing kernel object for embedding, and checked the Aya and NFQUEUE dependencies for Android, but failed core compilation with twelve missing-declaration errors. The namespace definitions now also compile for Android; its missing `SO_NETNS_COOKIE` declaration uses the arm64 Linux UAPI value 71 while Linux keeps libc's declaration. The workflow checks native Linux `ebpf` compilation and formatting before configuring Android. Transparent-socket and outbound-mark helpers still contain Linux-only guards, so this stage must not be used as a working Android datapath or automatically installed into the KernelSU module.
+The first real-backend probe built and prepared the BTF-bearing kernel object for embedding, and checked the Aya and NFQUEUE dependencies for Android, but failed core compilation with twelve missing-declaration errors. The namespace definitions now also compile for Android; its missing `SO_NETNS_COOKIE` declaration uses the arm64 Linux UAPI value 71 while Linux keeps libc's declaration. The workflow checks native Linux `ebpf` compilation and formatting before configuring Android. The transparent TCP/UDP constructors, accepted-socket mark clearing and anyfrom reply sockets now also use the existing namespace-aware path on Android. This is still not a verified Android datapath and must not be automatically installed into the KernelSU module.
+
+
+## Foreground device probe
+
+The real-eBPF executable provides a config-independent command:
+
+```sh
+chmod 755 /data/local/tmp/honk-ebpf/honk-core
+su -c '/data/local/tmp/honk-ebpf/honk-core android-ebpf-probe' > /sdcard/honk-ebpf-probe.txt 2>&1
+```
+
+Extract the `honk-android-arm64-api35-ebpf-experimental` artifact into `/data/local/tmp/honk-ebpf` first. Verify its `SHA256SUMS` before execution. The executable embeds its object; the separate `honk-ebpf.o` is included for inspection. Keep SELinux enforcing. Run the command manually in the foreground; it does not install a service or change module startup.
+
+The command observes ordinary and candidate-marked UDP sockets before/after `connect` to numeric `1.1.1.1:53`, without sending application payload. `--destination` accepts an IPv4/IPv6 socket address; `--mark` accepts a nonzero decimal candidate (default 256). The candidate is used consistently for transparent listeners and object parameters. UDP connect success and mark preservation are observations, not proof that packets or replies reach that destination.
+
+A dedicated OS thread must successfully enter a new network namespace before it creates a private veth pair or attaches anything. It exercises production transparent TCP/UDP constructors on unassigned documentation addresses in both families, validates the embedded object ABI/absence of implicit pins, loads the device's BTF/maps, and loads the real `wan_ingress_l3`/`wan_egress_l3` programs through the verifier. For each program it creates a TCX link on the private veth, confirms the link ID appears in the chain, closes the FD and confirms disappearance. All links/maps are unpinned; thread/namespace teardown removes the private pair, including error paths. No root-cgroup hooks, host interface hooks, host routes/rules or sysctls are changed.
+
+Each stage prints `OK` or a contextual `FAIL`; any failed stage returns a nonzero exit status. `private-tcx: OK` proves only load/attach/detach on a private Ethernet veth. It does not prove RAWIP packet processing. Even a complete successful probe leaves cgroup/sk_lookup hooks, Android network routing, physical modem traffic, TCP/UDP upload/download and network switching unverified. Real Android daemon startup remains explicitly refused; `--mock-ebpf` continues to work. `/run/honk-core.lock` and optional `/var/run/netns/daens` compatibility-mount adaptation remain pending behind that guard.

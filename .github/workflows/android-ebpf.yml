@@ -83,6 +83,12 @@ jobs:
           set -euo pipefail
           cargo fmt --all -- --check
           cargo check --locked -p honk-core --no-default-features --features clash-api,rprx,ebpf 2>&1 | tee port-reports/linux-ebpf-check.log
+      - name: Test native sockets and config-independent probe CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib -p honk-core --no-default-features --features clash-api,rprx,ebpf control::sockets::tests:: -- --test-threads=1 2>&1 | tee port-reports/linux-socket-tests.log
+          cargo test --locked --test android_probe_test -p honk-core --no-default-features --features clash-api,rprx,ebpf 2>&1 | tee port-reports/linux-probe-cli-tests.log
       - name: Configure Android NDK toolchain
         shell: bash
         run: |
@@ -112,7 +118,7 @@ jobs:
           cp crates/honk-ebpf/target/bpfel-unknown-none/release/honk-ebpf android-ebpf-dist/honk-ebpf.o
           file android-ebpf-dist/honk-core | tee port-reports/android-ebpf-elf.txt
           llvm-readelf -l -d android-ebpf-dist/honk-core | tee -a port-reports/android-ebpf-elf.txt
-          printf '%s\n' 'Experimental build probe. No Android load, attach or forwarding validation. Do not enable at boot.' > android-ebpf-dist/README.txt
+          cp ci/android-ebpf-probe.txt android-ebpf-dist/README.txt
           (
             cd android-ebpf-dist
             sha256sum honk-core honk-ebpf.o README.txt > SHA256SUMS

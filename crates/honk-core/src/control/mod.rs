@@ -99,6 +99,8 @@ pub(crate) use reload::restart_required_fields;
 use reload::*;
 pub(crate) use reload::{LogFiles, StartupDowngrades};
 pub(crate) use resource_budget::{MAX_EFFECTIVE_NOFILE, ResourceBudget};
+#[cfg(feature = "ebpf")]
+pub(crate) use sockets::probe_transparent_listeners;
 use sockets::*;
 #[cfg(all(test, feature = "native-api"))]
 pub(crate) use tests::reload_harness::ReloadBehavior;

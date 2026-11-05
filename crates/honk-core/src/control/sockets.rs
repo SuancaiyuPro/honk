@@ -254,6 +254,23 @@ fn build_tproxy_udp(
     Ok(UdpSocket::from_std(socket.into())?)
 }
 
+/// Called on the probe's private netns thread with an entered Tokio reactor.
+/// Binding an unassigned address exercises IP_TRANSPARENT on the production constructors.
+#[cfg(feature = "ebpf")]
+pub(crate) fn probe_transparent_listeners(addr: SocketAddr) -> anyhow::Result<()> {
+    use anyhow::Context as _;
+
+    let tcp = build_tproxy_tcp(addr, true).context("transparent TCP bind")?;
+    let udp = build_tproxy_udp(addr, true, true).context("transparent UDP bind")?;
+    let expected = honk_outbound::util::bypass_mark();
+    anyhow::ensure!(
+        socket2::SockRef::from(&tcp).mark()? == expected
+            && socket2::SockRef::from(&udp).mark()? == expected,
+        "listener SO_MARK differs after bind"
+    );
+    Ok(())
+}
+
 /// Send a UDP reply for a TPROXY-received datagram using the original
 /// destination address as the source.  The client expects the response to come
 /// from the address it sent the query to (e.g. the bridge gateway at port 53),

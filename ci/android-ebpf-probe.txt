@@ -1,0 +1,23 @@
+Android ARM64 foreground eBPF probe (API 35+, experimental)
+
+Extract this directory to /data/local/tmp/honk-ebpf on the rooted phone.
+Verify SHA256SUMS, then run manually with SELinux enforcing:
+
+chmod 755 /data/local/tmp/honk-ebpf/honk-core
+su -c '/data/local/tmp/honk-ebpf/honk-core android-ebpf-probe' > /sdcard/honk-ebpf-probe.txt 2>&1
+
+The executable embeds the object. honk-ebpf.o is included for inspection.
+No config file or daemon/module installation is needed. No application UDP
+payload is sent; connect is used only to observe route/mark behavior.
+Optional: --destination 1.1.1.1:53 --mark 256 (numeric destination, decimal mark).
+
+The probe must enter a private network namespace before creating a private
+veth pair and loading/attaching/unloading WAN L3 TCX programs. It also checks
+production transparent TCP/UDP socket constructors for IPv4/IPv6. It does not
+attach root-cgroup hooks or change host interfaces, pins, routes or sysctls.
+Failure returns a nonzero exit status; keep the entire output log.
+
+Success does not validate RAWIP traffic, cgroup/sk_lookup hooks, Android
+policy routing, physical forwarding or network switching. Real Android daemon
+startup is still gated; keep the existing module in mock mode. Do not enable
+this probe at boot. See doc/en/operations/android.md (and doc/zh) for scope.

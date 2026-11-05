@@ -18,4 +18,22 @@
 
 移动数据网卡报告 RAWIP 帧格式。上游分类器已有该类型的 `_l3` 程序，但文档明确未验证真实基带网卡流量。设备测试必须考虑现有隧道和 Android 策略路由，不能清空 Android 规则或删除其他组件的 BPF 固定对象。
 
-首次真实后端探测成功构建了带 BTF 的内核对象并准备了嵌入文件，Aya 和 NFQUEUE 依赖也通过 Android 检查，但核心因十二处声明缺失而编译失败。现将已有命名空间定义也用于 Android；Android 缺少的 `SO_NETNS_COOKIE` 声明采用 arm64 Linux UAPI 的值 71，Linux 继续使用 libc 声明。工作流先检查原生 Linux 的 `ebpf` 编译和格式，再配置 Android。透明 socket 和出站标记辅助函数仍有 Linux 专用条件，因此此阶段不能当作可用的 Android 数据路径，也不能自动装入 KernelSU 模块。
+首次真实后端探测成功构建了带 BTF 的内核对象并准备了嵌入文件，Aya 和 NFQUEUE 依赖也通过 Android 检查，但核心因十二处声明缺失而编译失败。现将已有命名空间定义也用于 Android；Android 缺少的 `SO_NETNS_COOKIE` 声明采用 arm64 Linux UAPI 的值 71，Linux 继续使用 libc 声明。工作流先检查原生 Linux 的 `ebpf` 编译和格式，再配置 Android。透明 TCP/UDP 构造器、已接受连接的标记清除和 anyfrom 回包 socket 现已在 Android 上复用已有的命名空间路径。这仍不是经过验证的 Android 数据路径，不能自动装入 KernelSU 模块。
+
+
+## 手机前台探针
+
+真实 eBPF 核心提供无需配置文件的独立命令：
+
+```sh
+chmod 755 /data/local/tmp/honk-ebpf/honk-core
+su -c '/data/local/tmp/honk-ebpf/honk-core android-ebpf-probe' > /sdcard/honk-ebpf-probe.txt 2>&1
+```
+
+先把 `honk-android-arm64-api35-ebpf-experimental` 构建产物解压至 `/data/local/tmp/honk-ebpf`，执行前核对其中的 `SHA256SUMS`。核心已嵌入内核对象，单独附带的 `honk-ebpf.o` 用于检查。保持 SELinux 强制模式，手动前台运行；该命令不安装服务、不修改模块自启。
+
+命令观察普通 UDP socket 和带候选标记的 UDP socket 在 `connect` 前后的 SO_MARK，默认数字目标为 `1.1.1.1:53`，不发送应用载荷。`--destination` 接受 IPv4/IPv6 地址加端口；`--mark` 接受非零十进制候选值，默认 256。透明监听器与对象参数也使用同一个候选标记。UDP connect 成功、标记未被改写，仅属于观察结果，不能证明数据包或回包可达。
+
+独立系统线程必须先成功进入新建的网络命名空间，才能创建私有 veth 或挂载程序。探针在两种地址族的未分配文档地址上调用生产用透明 TCP/UDP 构造器，检查嵌入对象 ABI 和无隐式固定路径，加载手机的 BTF 和 maps，再让验证器加载真实 `wan_ingress_l3`、`wan_egress_l3` 程序。每个程序都在私有 veth 上创建 TCX 链接、确认链接 ID 出现在链中，关闭 FD 后确认链接消失。所有链接和 map 均不固定；线程及命名空间销毁时移除私有网卡，出错路径也会清理。不挂根 cgroup、不改主机网卡钩子、路由、规则或 sysctl。
+
+各阶段输出 `OK` 或带上下文的 `FAIL`，任何阶段失败均返回非零退出码。`private-tcx: OK` 仅证明私有以太网 veth 上的加载、挂载和卸载，不能证明 RAWIP 报文处理。全部通过后，仍需验证 cgroup/sk_lookup 钩子、Android 网络路由、真实基带流量、TCP/UDP 上传下载和网络切换。Android 真实守护进程启动仍会明确拒绝，`--mock-ebpf` 可继续使用；`/run/honk-core.lock` 和可选 `/var/run/netns/daens` 兼容挂载适配尚待完成。

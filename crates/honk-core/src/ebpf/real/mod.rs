@@ -167,6 +167,7 @@ impl RealEbpfBackend {
     }
 }
 
+pub(crate) mod android_probe;
 mod attach;
 mod bindings;
 mod btf;

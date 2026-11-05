@@ -446,7 +446,11 @@ pub(super) fn tcx_attach_type(direction: Direction) -> u32 {
 
 /// `BPF_LINK_CREATE` on an interface index, appended last (`BPF_F_AFTER` with
 /// relative fd 0: the order `SchedClassifier::attach` uses).
-fn link_create(program: &OwnedFd, ifindex: u32, direction: Direction) -> io::Result<OwnedFd> {
+pub(super) fn link_create(
+    program: &OwnedFd,
+    ifindex: u32,
+    direction: Direction,
+) -> io::Result<OwnedFd> {
     let mut attr: bpf_attr = unsafe { core::mem::zeroed() };
     attr.link_create.__bindgen_anon_1.prog_fd = program.as_raw_fd() as u32;
     attr.link_create.__bindgen_anon_2.target_ifindex = ifindex;

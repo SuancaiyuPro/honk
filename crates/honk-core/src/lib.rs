@@ -162,6 +162,16 @@ const DEFAULT_BPF_OBJECT: &[u8] = include_bytes!(env!("HONK_EBPF_OBJECT"));
 
 #[derive(clap::Subcommand, Debug)]
 pub enum ClashCommand {
+    /// Probe the embedded WAN classifiers on a private link and observe UDP socket marks
+    #[cfg(feature = "ebpf")]
+    AndroidEbpfProbe {
+        /// Numeric destination for UDP route lookup; sends no payload
+        #[arg(long, default_value = "1.1.1.1:53")]
+        destination: std::net::SocketAddr,
+        /// Candidate SO_MARK in decimal
+        #[arg(long, default_value_t = honk_ebpf_common::DAE_BYPASS_MARK)]
+        mark: u32,
+    },
     /// Set clash mode (rule / global / direct)
     Mode {
         /// Mode value: rule, global, or direct
@@ -292,6 +302,10 @@ pub async fn handle_clash_command(cli: &Cli) -> anyhow::Result<()> {
     };
 
     match cmd {
+        #[cfg(feature = "ebpf")]
+        ClashCommand::AndroidEbpfProbe { destination, mark } => {
+            ebpf::real::android_probe::run(*destination, *mark)?;
+        }
         #[cfg(feature = "native-api")]
         ClashCommand::Config {
             action:
@@ -776,7 +790,7 @@ pub async fn run(cli: Cli) -> anyhow::Result<()> {
     #[cfg(all(target_os = "android", feature = "ebpf"))]
     anyhow::ensure!(
         mock_mode,
-        "Android WAN forwarding is experimental; use --mock-ebpf for the manager"
+        "Android WAN forwarding is experimental; run android-ebpf-probe or use --mock-ebpf"
     );
     // Everything else in `run` drops before it.
     let _instance_lock = instance_lock(mock_mode)?;
