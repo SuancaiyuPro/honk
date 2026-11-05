@@ -4,7 +4,7 @@ use std::os::fd::{AsFd, AsRawFd};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result, ensure};
-use aya::maps::{Array, HashMap, SkStorage};
+use aya::maps::{HashMap, SkStorage};
 use aya::programs::SchedClassifier;
 use aya::{Ebpf, EbpfLoader};
 use honk_ebpf_common::{DaeParam, RetirementFence, SocketIdentity, TuplesKey, dae_ip::In6Addr};
@@ -193,8 +193,7 @@ fn probe_socket_identity(
     identity_mode: bool,
 ) -> Result<()> {
     for name in ["DATAPATH_STATE_MAP", "RETIRE_ACTIVE"] {
-        Array::<_, u32>::try_from(bpf.map_mut(name).context("missing readiness map")?)?
-            .set(0, 1, 0)?;
+        super::set_array_value(bpf, name, 0, &1u32)?;
     }
     let classifier: &mut SchedClassifier = bpf
         .program_mut("wan_egress_l2")
@@ -330,8 +329,8 @@ fn fence_probe_client(
             .context("missing exact tuple fence map")?,
     )?
     .insert(
-        key,
-        RetirementFence {
+        &key,
+        &RetirementFence {
             owner: 1,
             ..Default::default()
         },
