@@ -1,6 +1,6 @@
 use super::*;
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 const IPV6_ORIGDSTADDR_OPT: libc::c_int = 74;
 #[cfg(all(feature = "ebpf", feature = "native-api", target_os = "linux"))]
 const SO_RCVPRIORITY_OPT: libc::c_int = 82;
@@ -575,7 +575,7 @@ async fn send_dns_reply_cached(
 
 /// Send a datagram to `dst` with `src_ip` as the source address via pktinfo
 /// ancillary data. The source port is the socket's bound port (53).
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 fn sendmsg_with_src(
     fd: RawFd,
     data: &[u8],
@@ -583,6 +583,9 @@ fn sendmsg_with_src(
     src_ifindex: u32,
     dst: SocketAddr,
 ) -> io::Result<usize> {
+    #[cfg(target_os = "android")]
+    let src_ifindex = libc::c_int::try_from(src_ifindex)
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "interface index overflow"))?;
     let dst_addr = socket2::SockAddr::from(dst);
     let mut iov = libc::iovec {
         iov_base: data.as_ptr() as *mut libc::c_void,
@@ -1172,9 +1175,13 @@ fn packet_info_from_cmsg(
         }
         let pktinfo =
             unsafe { std::ptr::read_unaligned(data.as_ptr().cast::<libc::in6_pktinfo>()) };
+        #[cfg(target_os = "android")]
+        let ifindex = u32::try_from(pktinfo.ipi6_ifindex).ok()?;
+        #[cfg(not(target_os = "android"))]
+        let ifindex = pktinfo.ipi6_ifindex;
         return Some((
             std::net::IpAddr::V6(std::net::Ipv6Addr::from(pktinfo.ipi6_addr.s6_addr)),
-            pktinfo.ipi6_ifindex,
+            ifindex,
         ));
     }
     None

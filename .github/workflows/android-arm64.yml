@@ -41,7 +41,7 @@ jobs:
           echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android35 --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot" >> "$GITHUB_ENV"
           echo "CMAKE_TOOLCHAIN_FILE_aarch64_linux_android=$GITHUB_WORKSPACE/ci/android-toolchain.cmake" >> "$GITHUB_ENV"
           echo "BORING_BSSL_RUST_CPPLIB=c++_static" >> "$GITHUB_ENV"
-          echo "RUSTFLAGS=-l static=c++abi -C link-arg=-Wl,-z,max-page-size=16384" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-C link-arg=-lc++abi -C link-arg=-Wl,-z,max-page-size=16384" >> "$GITHUB_ENV"
       - name: Install Rust target
         run: rustup target add "$TARGET"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
@@ -88,4 +88,3 @@ jobs:
         with:
           key: android-port-linux
       - run: cargo check --locked -p honk-core --no-default-features --features clash-api
-
