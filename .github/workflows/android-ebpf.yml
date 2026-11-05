@@ -51,8 +51,10 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/bpf-linker.tar.zst" \
             "https://github.com/aya-rs/bpf-linker/releases/download/v$BPF_LINKER_VERSION/bpf-linker-x86_64-unknown-linux-musl.tar.zst"
           echo "$BPF_LINKER_SHA256  $RUNNER_TEMP/bpf-linker.tar.zst" | sha256sum -c -
-          zstd -dc "$RUNNER_TEMP/bpf-linker.tar.zst" | tar -xf - -C "$CARGO_HOME/bin"
-          bpf-linker --version | tee -a port-reports/build-inputs.txt
+          mkdir -p "$RUNNER_TEMP/bpf-tools"
+          zstd -dc "$RUNNER_TEMP/bpf-linker.tar.zst" | tar -xf - -C "$RUNNER_TEMP/bpf-tools"
+          echo "$RUNNER_TEMP/bpf-tools" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/bpf-tools/bpf-linker" --version | tee -a port-reports/build-inputs.txt
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
         with:
           key: android-arm64-api35-real-ebpf
