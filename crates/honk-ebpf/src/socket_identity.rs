@@ -11,6 +11,25 @@ use honk_ebpf_common::{conn::BpfStatsKey, redirect_need::SocketIdentity};
 
 use crate::maps::{SOCKET_IDENTITY, increment_bpf_stat};
 
+/// # Safety
+/// `socket` must retain a verifier-recognized live socket pointer type.
+#[inline(always)]
+pub(crate) unsafe fn is_control_plane_socket(socket: *mut c_void) -> bool {
+    let owner = crate::maps::PARAM.load().control_plane_pid;
+    if socket.is_null() || owner == 0 {
+        return false;
+    }
+    let identity = unsafe {
+        bpf_sk_storage_get(
+            (&raw const SOCKET_IDENTITY).cast_mut().cast(),
+            socket.cast(),
+            ptr::null_mut(),
+            0,
+        )
+    };
+    !identity.is_null() && unsafe { (*identity.cast::<SocketIdentity>()).pid == owner }
+}
+
 /// Retain the first complete identity; a failure is counted, never enforced.
 ///
 /// # Safety

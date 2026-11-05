@@ -171,6 +171,9 @@ pub enum ClashCommand {
         /// Candidate SO_MARK in decimal
         #[arg(long, default_value_t = honk_ebpf_common::DAE_BYPASS_MARK)]
         mark: u32,
+        /// Prove native socket identity bypass with private loopback traffic
+        #[arg(long)]
+        socket_identity: bool,
     },
     /// Set clash mode (rule / global / direct)
     Mode {
@@ -303,8 +306,12 @@ pub async fn handle_clash_command(cli: &Cli) -> anyhow::Result<()> {
 
     match cmd {
         #[cfg(feature = "ebpf")]
-        ClashCommand::AndroidEbpfProbe { destination, mark } => {
-            ebpf::real::android_probe::run(*destination, *mark)?;
+        ClashCommand::AndroidEbpfProbe {
+            destination,
+            mark,
+            socket_identity,
+        } => {
+            ebpf::real::android_probe::run(*destination, *mark, *socket_identity)?;
         }
         #[cfg(feature = "native-api")]
         ClashCommand::Config {

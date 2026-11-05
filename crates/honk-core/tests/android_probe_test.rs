@@ -21,21 +21,27 @@ fn help_needs_no_config_or_kernel_permissions() {
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(stdout.contains("--destination"));
     assert!(stdout.contains("--mark"));
+    assert!(stdout.contains("--socket-identity"));
     assert!(!stdout.contains("private-netns:"));
 }
 
 #[test]
 fn zero_mark_fails_before_socket_or_namespace_work() {
-    let output = probe(&["--mark", "0"]);
-    assert!(!output.status.success());
-    let stderr = String::from_utf8(output.stderr).unwrap();
-    assert!(
-        stderr.contains("candidate mark must be nonzero"),
-        "{stderr}"
-    );
-    let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(!stdout.contains("ordinary-udp:"));
-    assert!(!stdout.contains("private-netns:"));
+    for args in [
+        vec!["--mark", "0"],
+        vec!["--socket-identity", "--mark", "0"],
+    ] {
+        let output = probe(&args);
+        assert!(!output.status.success());
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(
+            stderr.contains("candidate mark must be nonzero"),
+            "{stderr}"
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert!(!stdout.contains("ordinary-udp:"));
+        assert!(!stdout.contains("private-netns:"));
+    }
 }
 
 #[test]

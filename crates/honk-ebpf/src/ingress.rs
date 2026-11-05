@@ -513,8 +513,7 @@ fn do_tproxy_lan_ingress(ctx: &TcContext, link_h_len: u32) -> Verdict {
 
     if pkt.l4proto == IPPROTO_TCP || pkt.l4proto == IPPROTO_UDP {
         // An originated socket must also survive an explicitly LAN-bound lo.
-        let bypass_mark = PARAM.load().dae_socket_mark;
-        if bypass_mark != 0 && unsafe { (*raw_skb(ctx)).mark } == bypass_mark {
+        if crate::routing::skb_is_dae_socket(ctx) {
             return pass_through_classified(ctx);
         }
     }

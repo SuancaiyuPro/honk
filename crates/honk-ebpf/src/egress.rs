@@ -827,13 +827,11 @@ fn do_tproxy_wan_egress(ctx: &TcContext, link_h_len: u32) -> Verdict {
         return Err(TC_ACT_UNSPEC);
     }
 
-    // Global socket marks match exactly. Final userspace direct sockets carry
+    // Production socket marks match exactly. Final userspace direct sockets carry
     // the same classified flag as native/NFQUEUE direct packets, independent
     // of cookie/PID availability. Pending queue tokens are never this bypass.
     let mark = skb_mark(ctx);
-    if (param.dae_socket_mark != 0 && mark == param.dae_socket_mark)
-        || mark & SKB_MARK_RESERVED_MASK == CLASSIFIED_MARK
-    {
+    if crate::routing::skb_is_dae_socket(ctx) || mark & SKB_MARK_RESERVED_MASK == CLASSIFIED_MARK {
         return Err(TC_ACT_OK);
     }
     // TCP fence/expiry refusal happens inside conntrack and its post-miss check.

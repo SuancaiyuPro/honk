@@ -37,3 +37,13 @@ su -c '/data/local/tmp/honk-ebpf/honk-core android-ebpf-probe' > /sdcard/honk-eb
 独立系统线程必须先成功进入新建的网络命名空间，才能创建私有 veth 或挂载程序。探针在两种地址族的未分配文档地址上调用生产用透明 TCP/UDP 构造器，检查嵌入对象 ABI 和无隐式固定路径，加载手机的 BTF 和 maps，再让验证器加载真实 `wan_ingress_l3`、`wan_egress_l3` 程序。每个程序都在私有 veth 上创建 TCX 链接、确认链接 ID 出现在链中，关闭 FD 后确认链接消失。所有链接和 map 均不固定；线程及命名空间销毁时移除私有网卡，出错路径也会清理。不挂根 cgroup、不改主机网卡钩子、路由、规则或 sysctl。
 
 各阶段输出 `OK` 或带上下文的 `FAIL`，任何阶段失败均返回非零退出码。`private-tcx: OK` 仅证明私有以太网 veth 上的加载、挂载和卸载，不能证明 RAWIP 报文处理。全部通过后，仍需验证 cgroup/sk_lookup 钩子、Android 网络路由、真实基带流量、TCP/UDP 上传下载和网络切换。Android 真实守护进程启动仍会明确拒绝，`--mock-ebpf` 可继续使用；`/run/honk-core.lock` 和可选 `/var/run/netns/daens` 兼容挂载适配尚待完成。
+
+### Socket 身份实验
+
+目标手机上，UDP `connect` 把候选标记 `0x100` 改为 `0x000c0068`，与普通 socket 相同；候选 `0x01000000` 则变为 `0x010c0068`。Android 的 [Fwmark](https://android.googlesource.com/platform/system/netd/+/refs/heads/main/include/Fwmark.h) 包含网络 ID、权限等字段。仅放宽探针、接受任意改写结果，不能证明旁路有效。
+
+可选的 `android-ebpf-probe --socket-identity` 实验借鉴 [NetProxy 固定的 sing-box 分支](https://github.com/reF1nd/sing-box/blob/v1.15.0-alpha.13-reF1nd/common/dialer/ebpf_self_bypass_linux.go)，把 socket 身份与 fwmark 分离。honk 复用已有的原生 `SK_STORAGE`，不引入 cookie LRU 或整个 UID 的豁免。只有前台探针加载器开启实验判断；生产加载器仍保留完整标记匹配。
+
+该实验在 NEWNET 成功后，仅通过私有 loopback 发送有界 UDP 载荷。它挂载真实 WAN L2 分类器，对客户端的精确元组设置 fence，再通过其自有 socket FD 登记身份。无身份、错误 PID、零 PID、移除身份后都必须丢弃，登记为核心自身身份时必须投递；同进程的另一个未登记 socket 仍须丢弃。独立的原有标记模式即使登记了自身身份，也必须丢弃。每例检查接收结果，已登记客户端的 socket 标记必须保持不变；成功和错误路径均关闭私有 TCX 链接并确认其消失。
+
+显式选择此模式后，主机 UDP 标记只作为观察结果，但主机 `connect` 仍须成功；旁路成功改由私有真实报文证明。默认探针继续严格检查标记保持。`private-socket-identity: OK` 仅证明显式 FD 登记和私有 WAN UDP 旁路，不代表生产可用。守护进程启用前，还必须处理钩子安装前创建的 socket，并让旁路登记失败中止启动；现有进程名自动采集允许分配失败。TCP 已接受连接、LAN socket 查找、Android 根 cgroup 共存、网络切换和完整转发仍需独立验证。

@@ -36,6 +36,10 @@ pub struct UdpDecisionScratch {
 #[unsafe(no_mangle)]
 pub static PARAM: Global<DaeParam> = Global::new(DaeParam::DEFAULT);
 
+/// Experimental foreground probe only; production retains exact socket marks.
+#[unsafe(no_mangle)]
+pub static BYPASS_BY_SOCKET_IDENTITY: Global<u8> = Global::new(0);
+
 #[unsafe(no_mangle)]
 pub static WAN_IFINDEX: Global<u32> = Global::new(0);
 

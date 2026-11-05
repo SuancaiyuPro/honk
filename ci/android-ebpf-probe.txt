@@ -8,8 +8,15 @@ su -c '/data/local/tmp/honk-ebpf/honk-core android-ebpf-probe' > /sdcard/honk-eb
 
 The executable embeds the object. honk-ebpf.o is included for inspection.
 No config file or daemon/module installation is needed. No application UDP
-payload is sent; connect is used only to observe route/mark behavior.
+payload is sent to the host destination; connect observes route/mark behavior.
 Optional: --destination 1.1.1.1:53 --mark 256 (numeric destination, decimal mark).
+
+Optional: --socket-identity proves native SK_STORAGE bypass using real UDP
+payloads only inside private loopback. Missing/foreign/zero/removed identities
+and an unrelated socket must drop; explicit own-FD registration must deliver.
+The legacy exact-mark mode is also checked as a negative control. In this mode
+host marks are observations, never claimed to be preserved. Only the foreground
+loader opts in; production still uses exact marks and startup remains gated.
 
 The probe must enter a private network namespace before creating a private
 veth pair and loading/attaching/unloading WAN L3 TCX programs. It also checks
