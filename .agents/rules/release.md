@@ -1,5 +1,7 @@
 ### CI / releases
 
+The Android fork additionally has `.github/workflows/android-ebpf.yml` on `android-ebpf`: a compile/link probe for ARM64/API 35 with `clash-api,rprx,ebpf`. It builds and BTF-checks the standalone kernel object with the pinned nightly/linker before exporting Android NDK flags. Failure reports are retained; binaries require a successful check and link. It runs no kernel programs and establishes no Android runtime support; bilingual device prerequisites and limitations are in `doc/{en,zh}/operations/android.md`. The original mock-only `android-arm64.yml` remains independent.
+
 Read with: `AGENTS.md` (Current validation guidance, the workspace gate); `deployment.md` for what the tarballs are for; skill `honk-release` for the tag-to-release sequence.
 
 `.github/workflows/ci.yml` selects lanes once in `changes` and records the decision in `ci-report-selection`. Code pull requests run fmt + clippy, workspace nextest, the `honk-core --features ebpf --tests` compile guard and offline documentation links; prose-only pull requests run links and mechanical review. The eBPF path filter or `ci:ebpf` label adds the floor-kernel VM gate. `ci:full` adds every lane even on prose-only pull requests, including the recent-kernel VM gate, native aarch64 nextest, independent feature checks and the x86_64 musl core/toolbox build with toolbox startup. Failed change detection runs all lanes rather than hiding coverage. The `ci-ok` job aggregates every other job (skipped lanes pass; failed or cancelled lanes and failed change detection fail) and is the single check to require in branch protection; making it required is a repository setting the maintainers apply. Pushes to `main`/`dev` run everything. Manual runs always check code and docs; `ebpf` or `full` enables the floor gate, and `full` enables heavy lanes (both inputs default true).
@@ -59,4 +61,3 @@ Every publication, formal or Debug, also uploads one `SHA256SUMS` covering all p
 - **doona:** after publishing, attach this release's builds to the doona release named in `.github/ci/pins.env` and update that release's Pairing section, as doona's [release versions](https://github.com/Zakkaus/doona/blob/main/CONTRIBUTING.md#release-versions) describe.
 
 - **Deployment:** after tagging, use the canonical musl jemalloc gateway tarball. Note development/manual `scp` deployments in the PR/issue of record when they differ from release artifacts.
-

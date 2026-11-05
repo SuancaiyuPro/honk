@@ -1,0 +1,125 @@
+name: Android real eBPF build probe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [android-ebpf]
+    paths:
+      - '.github/workflows/android-ebpf.yml'
+      - '.github/ci/pins.env'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**'
+      - 'rust-toolchain.toml'
+      - 'ci/android-toolchain.cmake'
+
+permissions:
+  contents: read
+
+jobs:
+  android-ebpf-build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      TARGET: aarch64-linux-android
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build pkg-config libclang-dev clang llvm zstd
+      - name: Install pinned toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p port-reports
+          rustup target add "$TARGET"
+          channel=$(python3 -c 'import tomllib; print(tomllib.load(open("crates/honk-ebpf/rust-toolchain.toml", "rb"))["toolchain"]["channel"])')
+          rustup toolchain install "$channel" --profile minimal --component rust-src --component llvm-tools
+          echo "EBPF_TOOLCHAIN=$channel" >> "$GITHUB_ENV"
+          {
+            git rev-parse HEAD
+            rustc --version
+            rustc "+$channel" --version
+          } > port-reports/build-inputs.txt
+      - name: Install pinned bpf-linker
+        shell: bash
+        run: |
+          set -euo pipefail
+          source .github/ci/pins.env
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/bpf-linker.tar.zst" \
+            "https://github.com/aya-rs/bpf-linker/releases/download/v$BPF_LINKER_VERSION/bpf-linker-x86_64-unknown-linux-musl.tar.zst"
+          echo "$BPF_LINKER_SHA256  $RUNNER_TEMP/bpf-linker.tar.zst" | sha256sum -c -
+          zstd -dc "$RUNNER_TEMP/bpf-linker.tar.zst" | tar -xf - -C "$CARGO_HOME/bin"
+          bpf-linker --version | tee -a port-reports/build-inputs.txt
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0
+        with:
+          key: android-arm64-api35-real-ebpf
+          workspaces: |
+            . -> target
+            crates/honk-ebpf -> target
+          cache-on-failure: true
+      - name: Build eBPF object before configuring Android
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd crates/honk-ebpf
+            env -u RUSTFLAGS -u CARGO_ENCODED_RUSTFLAGS \
+              CARGO_TARGET_DIR="$GITHUB_WORKSPACE/crates/honk-ebpf/target" \
+              cargo "+$EBPF_TOOLCHAIN" build --locked --release -Zbuild-std=core --target bpfel-unknown-none
+          ) 2>&1 | tee port-reports/ebpf-object-build.log
+          object=crates/honk-ebpf/target/bpfel-unknown-none/release/honk-ebpf
+          readelf -SW "$object" > port-reports/ebpf-sections.txt
+          grep -q '\.BTF ' port-reports/ebpf-sections.txt
+          printf '%s' "$EBPF_TOOLCHAIN" > "$object.toolchain"
+          sha256sum "$object" > port-reports/ebpf-object-sha256.txt
+      - name: Configure Android NDK toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLCHAIN="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          echo "$TOOLCHAIN" >> "$GITHUB_PATH"
+          echo "CC_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
+          echo "CXX_aarch64_linux_android=$TOOLCHAIN/aarch64-linux-android35-clang++" >> "$GITHUB_ENV"
+          echo "AR_aarch64_linux_android=$TOOLCHAIN/llvm-ar" >> "$GITHUB_ENV"
+          echo "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$TOOLCHAIN/aarch64-linux-android35-clang" >> "$GITHUB_ENV"
+          echo "BINDGEN_EXTRA_CLANG_ARGS=--target=aarch64-linux-android35 --sysroot=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/sysroot" >> "$GITHUB_ENV"
+          echo "CMAKE_TOOLCHAIN_FILE_aarch64_linux_android=$GITHUB_WORKSPACE/ci/android-toolchain.cmake" >> "$GITHUB_ENV"
+          echo "BORING_BSSL_RUST_CPPLIB=c++_static" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-C link-arg=-lc++abi -C link-arg=-Wl,-z,max-page-size=16384" >> "$GITHUB_ENV"
+      - name: Check Android real eBPF backend
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo check --locked --target "$TARGET" -p honk-core --no-default-features --features clash-api,rprx,ebpf 2>&1 | tee port-reports/android-ebpf-check.log
+      - name: Link Android real eBPF executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo build --locked --release --target "$TARGET" -p honk-core --no-default-features --features clash-api,rprx,ebpf 2>&1 | tee port-reports/android-ebpf-build.log
+          mkdir -p android-ebpf-dist
+          cp "target/$TARGET/release/honk-core" android-ebpf-dist/honk-core
+          cp crates/honk-ebpf/target/bpfel-unknown-none/release/honk-ebpf android-ebpf-dist/honk-ebpf.o
+          file android-ebpf-dist/honk-core | tee port-reports/android-ebpf-elf.txt
+          llvm-readelf -l -d android-ebpf-dist/honk-core | tee -a port-reports/android-ebpf-elf.txt
+          printf '%s\n' 'Experimental build probe. No Android load, attach or forwarding validation. Do not enable at boot.' > android-ebpf-dist/README.txt
+          (
+            cd android-ebpf-dist
+            sha256sum honk-core honk-ebpf.o README.txt > SHA256SUMS
+            sha256sum -c SHA256SUMS
+          )
+      - name: Upload experimental executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: honk-android-arm64-api35-ebpf-experimental
+          path: android-ebpf-dist/
+          if-no-files-found: error
+      - name: Upload real eBPF build report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-real-ebpf-report
+          path: port-reports/
+          if-no-files-found: warn
