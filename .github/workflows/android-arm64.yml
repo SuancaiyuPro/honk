@@ -54,11 +54,16 @@ jobs:
           set -o pipefail
           mkdir -p port-reports
           cargo check --locked --target "$TARGET" -p honk-core --no-default-features --features clash-api 2>&1 | tee port-reports/android-check.log
+      - name: Check VLESS and VMess handlers
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo check --locked --target "$TARGET" -p honk-core --no-default-features --features clash-api,rprx 2>&1 | tee port-reports/android-rprx-check.log
       - name: Link Android executable
         shell: bash
         run: |
           set -euo pipefail
-          cargo build --locked --release --target "$TARGET" -p honk-core --no-default-features --features clash-api 2>&1 | tee port-reports/android-build.log
+          cargo build --locked --release --target "$TARGET" -p honk-core --no-default-features --features clash-api,rprx 2>&1 | tee port-reports/android-build.log
           mkdir -p android-dist
           cp "target/$TARGET/release/honk-core" android-dist/honk-core
           file android-dist/honk-core | tee port-reports/android-elf.txt
@@ -88,3 +93,11 @@ jobs:
         with:
           key: android-port-linux
       - run: cargo check --locked -p honk-core --no-default-features --features clash-api
+      - run: cargo fmt --all -- --check
+      - name: Test socket metadata handling
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo test --locked --lib -p honk-core --no-default-features --features clash-api,rprx control::sockets::tests:: -- --list > socket-tests.txt
+          grep -q '^control::sockets::tests::.*: test$' socket-tests.txt
+          cargo test --locked --lib -p honk-core --no-default-features --features clash-api,rprx control::sockets::tests:: -- --test-threads=1
